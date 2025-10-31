@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "tap-langsmith"
+version = "0.1.0"
+description = "Singer tap para extraer datos de LangSmith API"
+authors = ["Julian Murphy"]
+readme = "README.md"
+keywords = ["singer", "tap", "langsmith", "meltano"]
+license = "Apache-2.0"
+packages = [{ include = "tap_langsmith" }]
+
+[tool.poetry.dependencies]
+python = ">=3.8"
+singer-sdk = "^0.40.0"
+requests = "^2.31.1"
+
+[tool.poetry.scripts]
+tap-langsmith = "tap_langsmith.tap:cli"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
