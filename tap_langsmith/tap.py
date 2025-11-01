@@ -85,6 +85,7 @@ class LangSmithStream(RESTStream):
         filter_str = "eq(is_root, true)"
         #start_time = self.config.get("start_time")
         get_last_start_time = self.get_starting_replication_key_value(context)
+        self.logger.info(f"Preparado filtros ",get_last_start_time)
         if get_last_start_time:
             filter_str = f'and(eq(is_root, true), gte(start_time, "{get_last_start_time}"))'
         #if start_time:
