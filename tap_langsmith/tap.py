@@ -83,18 +83,18 @@ class LangSmithStream(RESTStream):
 
     def prepare_request_payload(self, context, next_page_token):
         filter_str = "eq(is_root, true)"
-        start_time = self.config.get("start_time")
+        #start_time = self.config.get("start_time")
         get_last_start_time = self.get_starting_replication_key_value(context)
-        if not start_time and get_last_start_time:
+        if get_last_start_time:
             filter_str = f'and(eq(is_root, true), gte(start_time, "{get_last_start_time}"))'
-        if start_time:
-            from datetime import datetime
-            try:
-                dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-                iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-                filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
-            except Exception:
-                pass
+        #if start_time:
+        #    from datetime import datetime
+        #    try:
+        #        dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        #        iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        #        filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
+        #    except Exception:
+        #        pass
         payload = {
             "session": [self.config["session_id"]],
             "filter": filter_str,
