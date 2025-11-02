@@ -4,7 +4,7 @@ from singer_sdk.streams import RESTStream
 from typing import Optional, Any, Dict, Iterable
 
 class LangSmithStream(RESTStream):
-    name = "query_runs"
+    name = "tap-langsmith"
 
     @property
     def replication_key(self) -> str:
@@ -15,7 +15,7 @@ class LangSmithStream(RESTStream):
 
     @property
     def is_sorted(self) -> bool:
-        return False
+        return True
 
     @property
     def url_base(self) -> str:
@@ -81,25 +81,60 @@ class LangSmithStream(RESTStream):
             "Content-Type": "application/json"
         }
 
+    def __init__(self, tap, name=None):
+        super().__init__(tap, name)
+        self._initial_bookmark = None
+
+    def _get_initial_bookmark(self, context):
+        ctx_state = self.get_context_state(context)
+        bk = ctx_state.get("replication_key_value")
+
+        if not bk:
+            tap_state = self.tap_state or {}
+            bookmarks = tap_state.get("bookmarks", {})
+            stream_bk = bookmarks.get(self.name, {})
+            self.logger.info(f"Setting bookmark - from tap state {stream_bk}")
+            bk = stream_bk.get(self.replication_key)
+
+        if not bk:
+            bk = self.config.get("start_time")
+            self.logger.info(f"Setting bookmark - from config {bk}")
+
+        self.logger.info(f"final bookmark set {bk}")
+
+        return bk
     def prepare_request_payload(self, context, next_page_token):
         filter_str = "eq(is_root, true)"
-        #start_time = self.config.get("start_time")
-        get_last_start_time = self.get_starting_replication_key_value(context)
-        self.logger.info(f"Preparado filtros ",get_last_start_time)
-        if get_last_start_time:
-            filter_str = f'and(eq(is_root, true), gte(start_time, "{get_last_start_time}"))'
-        #if start_time:
-        #    from datetime import datetime
-        #    try:
-        #        dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        #        iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        #        filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
-        #    except Exception:
-        #        pass
+        last_start_time = self.get_starting_replication_key_value(context)
+        self.logger.info(f"Preparado filtros {self.tap_state} {last_start_time}")
+        #if last_start_time:
+        #    filter_str = f'and(eq(is_root, true), gte(start_time, "{last_start_time}"))'
+        #else:
+        if self._initial_bookmark is None:
+            self._initial_bookmark = self._get_initial_bookmark(context)
+            self.logger.info(f"Initial bookmark for this run: {self._initial_bookmark}")
+
+        filter_str = "eq(is_root, true)"
+        if self._initial_bookmark:
+            from datetime import datetime
+            dt = datetime.fromisoformat(str(self._initial_bookmark).replace("Z", "+00:00"))
+            iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
+        else:
+            start_time = self.config.get("start_time")
+            if start_time:
+                from datetime import datetime
+                try:
+                    dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                    iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
+                except Exception:
+                    pass
         payload = {
             "session": [self.config["session_id"]],
             "filter": filter_str,
             "limit": self.page_size,
+            "order": "desc",
             "select":["id", "name", "run_type", "start_time", "end_time", "status", "error", "extra", "events", "inputs",
         "inputs_preview", "inputs_s3_urls", "inputs_or_signed_url", "outputs", "outputs_preview", "outputs_s3_urls",
         "outputs_or_signed_url", "s3_urls", "error_or_signed_url", "events_or_signed_url", "extra_or_signed_url",
