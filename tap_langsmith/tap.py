@@ -70,7 +70,7 @@ class LangSmithStream(RESTStream):
         return "POST"
     @property
     def page_size(self) -> int:
-        return 50
+        return 80
     @property
     def next_page_token_jsonpath(self) -> str:
         return "$.cursors.next"
