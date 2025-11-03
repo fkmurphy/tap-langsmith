@@ -70,7 +70,7 @@ class LangSmithStream(RESTStream):
         return "POST"
     @property
     def page_size(self) -> int:
-        return 100
+        return 50
     @property
     def next_page_token_jsonpath(self) -> str:
         return "$.cursors.next"
@@ -148,6 +148,7 @@ class LangSmithStream(RESTStream):
         }
         if next_page_token:
             payload["cursor"] = next_page_token
+            payload["skip_pagination"] = False
         else:
             payload["skip_prev_cursor"] = True
         return payload
