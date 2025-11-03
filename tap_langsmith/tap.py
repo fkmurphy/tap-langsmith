@@ -88,7 +88,7 @@ class LangSmithStream(RESTStream):
     def _parse_iso(self, s: str) -> datetime:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
-      def _default_start_time(self) -> str:
+    def _default_start_time(self) -> str:
         return self._iso_utc(datetime.now(timezone.utc) - timedelta(hours=36))
 
     def __init__(self, tap, name=None):
