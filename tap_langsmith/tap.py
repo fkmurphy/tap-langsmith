@@ -148,8 +148,6 @@ class LangSmithStream(RESTStream):
         }
         if next_page_token:
             payload["cursor"] = next_page_token
-        else:
-            payload["skip_prev_cursor"] = True
         return payload
 
     def parse_response(self, response):
