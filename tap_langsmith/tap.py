@@ -156,8 +156,11 @@ class LangSmithStream(RESTStream):
         "tags", "in_dataset", "app_path", "share_token", "trace_tier", "trace_first_received_at", "ttl_seconds",
         "trace_upgrade", "thread_id", "trace_min_max_start_time"]
         }
+        self.logger.info(f"Final filter {filter_str}")
         if next_page_token:
+            self.logger.info(f"Using cursor {next_page_token}")
             payload["cursor"] = next_page_token
+
         return payload
 
     def parse_response(self, response):
