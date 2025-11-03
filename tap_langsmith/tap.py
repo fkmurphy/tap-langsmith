@@ -1,7 +1,6 @@
 from singer_sdk import Tap, typing as th
 import time
 from singer_sdk.streams import RESTStream
-from typing import Optional, Any, Dict, Iterable
 
 class LangSmithStream(RESTStream):
     name = "tap-langsmith"
