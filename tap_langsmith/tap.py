@@ -135,6 +135,7 @@ class LangSmithStream(RESTStream):
             "filter": filter_str,
             "limit": self.page_size,
             "order": "desc",
+            "skip_pagination": False,
             "select":["id", "name", "run_type", "start_time", "end_time", "status", "error", "extra", "events", "inputs",
         "inputs_preview", "inputs_s3_urls", "inputs_or_signed_url", "outputs", "outputs_preview", "outputs_s3_urls",
         "outputs_or_signed_url", "s3_urls", "error_or_signed_url", "events_or_signed_url", "extra_or_signed_url",
@@ -148,7 +149,6 @@ class LangSmithStream(RESTStream):
         }
         if next_page_token:
             payload["cursor"] = next_page_token
-            payload["skip_pagination"] = False
         else:
             payload["skip_prev_cursor"] = True
         return payload
