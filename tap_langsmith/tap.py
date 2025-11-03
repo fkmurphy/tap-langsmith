@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from singer_sdk import Tap, typing as th
 import time
 from singer_sdk.streams import RESTStream
@@ -80,6 +81,16 @@ class LangSmithStream(RESTStream):
             "Content-Type": "application/json"
         }
 
+
+    def _iso_utc(self, dt: datetime) -> str:
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _parse_iso(self, s: str) -> datetime:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+      def _default_start_time(self) -> str:
+        return self._iso_utc(datetime.now(timezone.utc) - timedelta(hours=36))
+
     def __init__(self, tap, name=None):
         super().__init__(tap, name)
         self._initial_bookmark = None
@@ -96,7 +107,17 @@ class LangSmithStream(RESTStream):
             bk = stream_bk.get(self.replication_key)
 
         if not bk:
-            bk = self.config.get("start_time")
+            conf_bk = self.config.get("start_time")
+            if conf_bk:
+                try:
+                    bk = self._iso_utc(self._parse_iso(conf_bk))
+                except:
+                    self.logger.warning(f"Invalid start_time in config: {conf_bk}, falling back to -36h default")
+                    bk = self._default_start_time()
+            else:
+                bk = self._default_start_time()
+                self.logger.info(f"Setting bookmark - default to last 36h {bk}")
+
             self.logger.info(f"Setting bookmark - from config {bk}")
 
         self.logger.info(f"final bookmark set {bk}")
@@ -106,34 +127,23 @@ class LangSmithStream(RESTStream):
         filter_str = "eq(is_root, true)"
         last_start_time = self.get_starting_replication_key_value(context)
         self.logger.info(f"Preparado filtros {self.tap_state} {last_start_time}")
-        #if last_start_time:
-        #    filter_str = f'and(eq(is_root, true), gte(start_time, "{last_start_time}"))'
-        #else:
         if self._initial_bookmark is None:
             self._initial_bookmark = self._get_initial_bookmark(context)
             self.logger.info(f"Initial bookmark for this run: {self._initial_bookmark}")
 
         filter_str = "eq(is_root, true)"
         if self._initial_bookmark:
-            from datetime import datetime
-            dt = datetime.fromisoformat(str(self._initial_bookmark).replace("Z", "+00:00"))
-            iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
-        else:
-            start_time = self.config.get("start_time")
-            if start_time:
-                from datetime import datetime
-                try:
-                    dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-                    iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-                    filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
-                except Exception:
-                    pass
+            try:
+                dt = self._parse_iso(str(self._initial_bookmark))
+                iso_ts = self._iso_utc(dt)
+                filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
+            except Exception:
+                self.logger.warning(f"Could not parse initial bookmark '{self._initial_bookmark}', using base filter only")
         payload = {
             "session": [self.config["session_id"]],
             "filter": filter_str,
             "limit": self.page_size,
-            "order": "desc",
+            "order": "asc",
             "skip_pagination": False,
             "select":["id", "name", "run_type", "start_time", "end_time", "status", "error", "extra", "events", "inputs",
         "inputs_preview", "inputs_s3_urls", "inputs_or_signed_url", "outputs", "outputs_preview", "outputs_s3_urls",
