@@ -5,6 +5,7 @@ from singer_sdk.streams import RESTStream
 
 class LangSmithStream(RESTStream):
     name = "tap-langsmith"
+    primary_keys = ["id"]
 
     @property
     def replication_key(self) -> str:
