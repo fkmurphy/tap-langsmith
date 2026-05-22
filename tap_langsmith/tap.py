@@ -1,6 +1,8 @@
-from datetime import datetime, timedelta, timezone
-from singer_sdk import Tap, typing as th
 import time
+from datetime import datetime, timedelta, timezone
+
+from singer_sdk import Tap
+from singer_sdk import typing as th
 from singer_sdk.streams import RESTStream
 
 DEFAULT_API_URL = "https://api.smith.langchain.com"
