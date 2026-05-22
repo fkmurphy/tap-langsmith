@@ -1,17 +1,40 @@
 [tool.poetry]
 name = "tap-langsmith"
 version = "0.1.0"
-description = "Singer tap para extraer datos de LangSmith API"
+description = "Singer tap for extracting runs from the LangSmith API"
 authors = ["Julian Murphy"]
-readme = "README.md"
-keywords = ["singer", "tap", "langsmith", "meltano"]
 license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/fkmurphy/tap-langsmith"
+repository = "https://github.com/fkmurphy/tap-langsmith"
+keywords = ["singer", "tap", "langsmith", "meltano", "elt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 packages = [{ include = "tap_langsmith" }]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
+python = ">=3.9,<4"
 singer-sdk = "^0.40.0"
 requests = "^2.31.1"
+# Workaround: singer-sdk 0.40.x → fs (pyfilesystem2) imports pkg_resources,
+# which setuptools >=70 dropped. Pin to a setuptools that still ships it.
+# Can be removed once we bump singer-sdk to a release that no longer
+# transitively depends on fs.
+setuptools = "<70"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+ruff = "^0.6"
 
 [tool.poetry.scripts]
 tap-langsmith = "tap_langsmith.tap:cli"
@@ -19,3 +42,19 @@ tap-langsmith = "tap_langsmith.tap:cli"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]  # line too long handled by formatter
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # allow assert False
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -q"

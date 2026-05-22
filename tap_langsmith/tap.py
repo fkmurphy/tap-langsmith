@@ -1,7 +1,10 @@
-from datetime import datetime, timedelta, timezone
-from singer_sdk import Tap, typing as th
 import time
+from datetime import datetime, timedelta, timezone
+
+from singer_sdk import Tap
+from singer_sdk import typing as th
 from singer_sdk.streams import RESTStream
+
 
 class LangSmithStream(RESTStream):
     name = "tap-langsmith"
@@ -112,7 +115,7 @@ class LangSmithStream(RESTStream):
             if conf_bk:
                 try:
                     bk = self._iso_utc(self._parse_iso(conf_bk))
-                except:
+                except Exception:
                     self.logger.warning(f"Invalid start_time in config: {conf_bk}, falling back to -36h default")
                     bk = self._default_start_time()
             else:
