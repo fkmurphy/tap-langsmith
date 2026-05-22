@@ -5,17 +5,17 @@ from singer_sdk import Tap
 from singer_sdk import typing as th
 from singer_sdk.streams import RESTStream
 
+DEFAULT_API_URL = "https://api.smith.langchain.com"
+DEFAULT_LOOKBACK_HOURS = 36
+DEFAULT_REQUEST_DELAY_SECONDS = 10
+DEFAULT_PAGE_SIZE = 80
+DEFAULT_IS_ROOT_ONLY = True
+
 
 class LangSmithStream(RESTStream):
     name = "tap-langsmith"
     primary_keys = ["id"]
-
-    @property
-    def replication_key(self) -> str:
-        return "start_time"
-    @replication_key.setter
-    def replication_key(self, value: str) -> None:
-        pass
+    replication_key = "start_time"
 
     @property
     def is_sorted(self) -> bool:
@@ -23,7 +23,7 @@ class LangSmithStream(RESTStream):
 
     @property
     def url_base(self) -> str:
-        return "https://api.smith.langchain.com"
+        return self.config.get("api_url", DEFAULT_API_URL)
 
     @property
     def schema(self) -> dict:
@@ -52,12 +52,12 @@ class LangSmithStream(RESTStream):
             th.Property("session_id", th.StringType, required=False, nullable=True),
             th.Property("total_tokens", th.NumberType),
             th.Property("prompt_tokens", th.NumberType),
-            th.Property("prompt_token_details",th.ObjectType(additional_properties=True), required=False, nullable=True),
+            th.Property("prompt_token_details", th.ObjectType(additional_properties=True), required=False, nullable=True),
             th.Property("completion_tokens", th.NumberType),
-            th.Property("completion_token_details",  th.ObjectType(additional_properties=True), required=False, nullable=True),
+            th.Property("completion_token_details", th.ObjectType(additional_properties=True), required=False, nullable=True),
             th.Property("total_cost", th.NumberType),
             th.Property("prompt_cost", th.NumberType),
-            th.Property("prompt_cost_details",  th.ObjectType(additional_properties=True), required=False, nullable=True),
+            th.Property("prompt_cost_details", th.ObjectType(additional_properties=True), required=False, nullable=True),
             th.Property("completion_cost", th.NumberType),
             th.Property("completion_cost_details", th.ObjectType(additional_properties=True), required=False, nullable=True),
             th.Property("price_model_id", th.StringType, required=False, nullable=True),
@@ -69,22 +69,25 @@ class LangSmithStream(RESTStream):
     @property
     def path(self) -> str:
         return "/api/v1/runs/query"
+
     @property
     def rest_method(self) -> str:
         return "POST"
+
     @property
     def page_size(self) -> int:
-        return 80
+        return int(self.config.get("page_size", DEFAULT_PAGE_SIZE))
+
     @property
     def next_page_token_jsonpath(self) -> str:
         return "$.cursors.next"
+
     @property
     def http_headers(self):
         return {
             "X-Api-Key": self.config["api_key"],
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-
 
     def _iso_utc(self, dt: datetime) -> str:
         return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -93,7 +96,8 @@ class LangSmithStream(RESTStream):
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
     def _default_start_time(self) -> str:
-        return self._iso_utc(datetime.now(timezone.utc) - timedelta(hours=36))
+        hours = int(self.config.get("lookback_hours", DEFAULT_LOOKBACK_HOURS))
+        return self._iso_utc(datetime.now(timezone.utc) - timedelta(hours=hours))
 
     def __init__(self, tap, name=None):
         super().__init__(tap, name)
@@ -116,49 +120,67 @@ class LangSmithStream(RESTStream):
                 try:
                     bk = self._iso_utc(self._parse_iso(conf_bk))
                 except Exception:
-                    self.logger.warning(f"Invalid start_time in config: {conf_bk}, falling back to -36h default")
+                    self.logger.warning(
+                        f"Invalid start_time in config: {conf_bk}, falling back to -{self.config.get('lookback_hours', DEFAULT_LOOKBACK_HOURS)}h default"
+                    )
                     bk = self._default_start_time()
             else:
                 bk = self._default_start_time()
-                self.logger.info(f"Setting bookmark - default to last 36h {bk}")
+                self.logger.info(f"Setting bookmark - default lookback {bk}")
 
             self.logger.info(f"Setting bookmark - from config {bk}")
 
         self.logger.info(f"final bookmark set {bk}")
-
         return bk
+
+    def _build_filter(self, bookmark_iso_ts: str | None) -> str:
+        base_filter = self.config.get("filter")
+        if base_filter is None:
+            base_filter = "eq(is_root, true)" if self.config.get("is_root_only", DEFAULT_IS_ROOT_ONLY) else ""
+
+        if not bookmark_iso_ts:
+            return base_filter
+
+        replication_clause = f'gte(start_time, "{bookmark_iso_ts}")'
+        if not base_filter:
+            return replication_clause
+        return f"and({base_filter}, {replication_clause})"
+
     def prepare_request_payload(self, context, next_page_token):
-        filter_str = "eq(is_root, true)"
         last_start_time = self.get_starting_replication_key_value(context)
         self.logger.info(f"Preparado filtros {self.tap_state} {last_start_time}")
         if self._initial_bookmark is None:
             self._initial_bookmark = self._get_initial_bookmark(context)
             self.logger.info(f"Initial bookmark for this run: {self._initial_bookmark}")
 
-        filter_str = "eq(is_root, true)"
+        bookmark_iso = None
         if self._initial_bookmark:
             try:
-                dt = self._parse_iso(str(self._initial_bookmark))
-                iso_ts = self._iso_utc(dt)
-                filter_str = f'and(eq(is_root, true), gte(start_time, "{iso_ts}"))'
+                bookmark_iso = self._iso_utc(self._parse_iso(str(self._initial_bookmark)))
             except Exception:
-                self.logger.warning(f"Could not parse initial bookmark '{self._initial_bookmark}', using base filter only")
+                self.logger.warning(
+                    f"Could not parse initial bookmark '{self._initial_bookmark}', using base filter only"
+                )
+
+        filter_str = self._build_filter(bookmark_iso)
         payload = {
             "session": [self.config["session_id"]],
             "filter": filter_str,
             "limit": self.page_size,
             "order": "asc",
             "skip_pagination": False,
-            "select":["id", "name", "run_type", "start_time", "end_time", "status", "error", "extra", "events", "inputs",
-        "inputs_preview", "inputs_s3_urls", "inputs_or_signed_url", "outputs", "outputs_preview", "outputs_s3_urls",
-        "outputs_or_signed_url", "s3_urls", "error_or_signed_url", "events_or_signed_url", "extra_or_signed_url",
-        "serialized_or_signed_url", "parent_run_id", "session_id",
-        "serialized", "reference_example_id", "reference_dataset_id", "total_tokens", "prompt_tokens",
-        "prompt_token_details", "completion_tokens", "completion_token_details", "total_cost", "prompt_cost",
-        "prompt_cost_details", "completion_cost", "completion_cost_details", "price_model_id", "first_token_time",
-        "trace_id", "dotted_order", "last_queued_at", "feedback_stats", "child_run_ids", "parent_run_ids",
-        "tags", "in_dataset", "app_path", "share_token", "trace_tier", "trace_first_received_at", "ttl_seconds",
-        "trace_upgrade", "thread_id", "trace_min_max_start_time"]
+            "select": [
+                "id", "name", "run_type", "start_time", "end_time", "status", "error", "extra", "events", "inputs",
+                "inputs_preview", "inputs_s3_urls", "inputs_or_signed_url", "outputs", "outputs_preview", "outputs_s3_urls",
+                "outputs_or_signed_url", "s3_urls", "error_or_signed_url", "events_or_signed_url", "extra_or_signed_url",
+                "serialized_or_signed_url", "parent_run_id", "session_id",
+                "serialized", "reference_example_id", "reference_dataset_id", "total_tokens", "prompt_tokens",
+                "prompt_token_details", "completion_tokens", "completion_token_details", "total_cost", "prompt_cost",
+                "prompt_cost_details", "completion_cost", "completion_cost_details", "price_model_id", "first_token_time",
+                "trace_id", "dotted_order", "last_queued_at", "feedback_stats", "child_run_ids", "parent_run_ids",
+                "tags", "in_dataset", "app_path", "share_token", "trace_tier", "trace_first_received_at", "ttl_seconds",
+                "trace_upgrade", "thread_id", "trace_min_max_start_time",
+            ],
         }
         self.logger.info(f"Final filter {filter_str}")
         if next_page_token:
@@ -169,18 +191,79 @@ class LangSmithStream(RESTStream):
 
     def parse_response(self, response):
         results = response.json().get("runs", [])
-        time.sleep(10)
+        delay = float(self.config.get("request_delay_seconds", DEFAULT_REQUEST_DELAY_SECONDS))
+        if delay > 0:
+            time.sleep(delay)
         return results
+
 
 class LangSmithTap(Tap):
     name = "tap-langsmith"
     config_jsonschema = th.PropertiesList(
-        th.Property("api_key", th.StringType, required=True, secret=True),
-        th.Property("session_id", th.StringType, required=True),
-        th.Property("start_time", th.StringType, required=False,
-            description="Fecha inicio ISO8601 ej: 2025-11-01T00:46:00.512001Z")
+        th.Property(
+            "api_key",
+            th.StringType,
+            required=True,
+            secret=True,
+            description="LangSmith API key (e.g. lsv2_pt_...).",
+        ),
+        th.Property(
+            "session_id",
+            th.StringType,
+            required=True,
+            description="LangSmith session/project UUID to extract runs from.",
+        ),
+        th.Property(
+            "start_time",
+            th.StringType,
+            required=False,
+            description="Initial replication start time in ISO 8601 (e.g. 2025-11-01T00:46:00Z). Only used when there is no state bookmark.",
+        ),
+        th.Property(
+            "api_url",
+            th.StringType,
+            required=False,
+            default=DEFAULT_API_URL,
+            description="LangSmith API base URL. Override for self-hosted deployments.",
+        ),
+        th.Property(
+            "is_root_only",
+            th.BooleanType,
+            required=False,
+            default=DEFAULT_IS_ROOT_ONLY,
+            description="If true (default), only extracts root runs (eq(is_root, true)). Ignored when `filter` is set.",
+        ),
+        th.Property(
+            "filter",
+            th.StringType,
+            required=False,
+            description="Custom LangSmith filter expression. When set, replaces the is_root_only default. The replication-key bookmark is appended automatically.",
+        ),
+        th.Property(
+            "lookback_hours",
+            th.IntegerType,
+            required=False,
+            default=DEFAULT_LOOKBACK_HOURS,
+            description="Hours to look back on first run when no state bookmark and no start_time are set.",
+        ),
+        th.Property(
+            "request_delay_seconds",
+            th.NumberType,
+            required=False,
+            default=DEFAULT_REQUEST_DELAY_SECONDS,
+            description="Delay between paginated requests to avoid rate limits. Set to 0 to disable.",
+        ),
+        th.Property(
+            "page_size",
+            th.IntegerType,
+            required=False,
+            default=DEFAULT_PAGE_SIZE,
+            description="Records per page requested from the LangSmith API.",
+        ),
     ).to_dict()
+
     def discover_streams(self):
         return [LangSmithStream(self)]
+
 
 cli = LangSmithTap.cli
