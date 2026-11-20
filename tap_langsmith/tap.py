@@ -14,6 +14,21 @@ DEFAULT_PAGE_SIZE = 80
 DEFAULT_IS_ROOT_ONLY = True
 
 
+def strip_null_characters(value):
+    """Remove U+0000 from every string, at any depth.
+
+    Postgres rejects that character in text and jsonb, so a single run carrying
+    it fails the loader's whole batch on every sync.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {key: strip_null_characters(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [strip_null_characters(item) for item in value]
+    return value
+
+
 class LangSmithStream(RESTStream):
     name = "tap-langsmith"
     primary_keys = ["id"]
@@ -190,6 +205,9 @@ class LangSmithStream(RESTStream):
             payload["cursor"] = next_page_token
 
         return payload
+
+    def post_process(self, row, context=None):
+        return strip_null_characters(row)
 
     def parse_response(self, response):
         results = response.json().get("runs", [])

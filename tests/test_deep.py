@@ -25,6 +25,7 @@ from tap_langsmith.tap import (
     DEFAULT_REQUEST_DELAY_SECONDS,
     LangSmithStream,
     LangSmithTap,
+    strip_null_characters,
 )
 
 MINIMAL_CONFIG = {
@@ -269,3 +270,33 @@ def test_stream_critical_attributes(attr, expected):
     breaks (the very bug PR #1 fixed)."""
     s = _stream()
     assert getattr(s, attr) == expected
+
+
+# ---------------------------------------------------------------------------
+# post_process — U+0000 breaks the Postgres loader
+# ---------------------------------------------------------------------------
+
+class TestStripNullCharacters:
+    def test_removes_nul_at_any_depth(self):
+        row = {
+            "outputs": {"result": {"answer": "abc\u0000def"}},
+            "events": [{"name": "x\u0000"}, "y\u0000"],
+            "error": "e\u0000rr",
+        }
+        cleaned = strip_null_characters(row)
+        assert cleaned == {
+            "outputs": {"result": {"answer": "abcdef"}},
+            "events": [{"name": "x"}, "y"],
+            "error": "err",
+        }
+
+    def test_keeps_the_literal_escape_text(self):
+        literal = 'print("\\u0000")'
+        assert strip_null_characters({"code": literal}) == {"code": literal}
+
+    def test_leaves_non_strings_untouched(self):
+        row = {"total_tokens": 10, "total_cost": 0.5, "parent_run_id": None, "flag": True}
+        assert strip_null_characters(row) == row
+
+    def test_stream_post_process_applies_it(self):
+        assert _stream().post_process({"outputs": {"text": "a\u0000"}}) == {"outputs": {"text": "a"}}
